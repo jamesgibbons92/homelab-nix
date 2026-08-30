@@ -1,0 +1,25 @@
+# nix build outputs
+result
+result-*
+
+# direnv
+.direnv/
+
+# local agent/editor state
+.claude/settings.local.json
+
+# never commit private key material or cluster credentials.
+# secrets/secrets.yaml is sops-encrypted and IS committed on purpose —
+# these patterns catch the plaintext things that must not join it.
+*.key
+*.pem
+keys.txt
+*.age
+kubeconfig
+.env
+.env.*
+
+# not published yet — internal planning notes and the expanded README
+homelab-plan.md
+README.local.md
+README.md

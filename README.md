@@ -1,2 +1,117 @@
 # homelab-nix
-# homelab-nix
+Single-node [k3s](https://k3s.io) cluster running NixOS, managed
+declaratively as a flake.
+
+Provisioned with [nixos-anywhere](https://github.com/nix-community/nixos-anywhere)
+and [disko](https://github.com/nix-community/disko). Secrets are committed
+encrypted via [sops-nix](https://github.com/Mic92/sops-nix). Services are
+reachable over [Tailscale](https://tailscale.com) — nothing is exposed to the
+internet and the router forwards no ports. The host rebuilds itself hourly by
+pulling this repo from GitHub.
+
+Kubernetes manifests are deliberately not templated through Nix — the host
+layer and the workload layer stay separate.
+
+## Setup
+
+### 1. Tailscale
+
+In the ACL policy file, declare the tags:
+
+```jsonc
+"tagOwners": {
+  "tag:k8s-operator": [],
+  "tag:k8s":          ["tag:k8s-operator"],
+  "tag:homelab":      ["autogroup:admin"],
+},
+```
+
+```jsonc
+"acls": [
+  { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:homelab:22,6443"] },
+  { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:k8s:443"] },
+],
+
+"ssh": [
+  {
+    "action": "check",           // browser re-auth, ~12h
+    "src":    ["autogroup:member"],
+    "dst":    ["tag:homelab"],
+    "users":  ["homelab"],      
+  },
+],
+```
+
+Then generate two credentials:
+
+- An **OAuth client** (Settings → OAuth clients) with **Devices: write** and
+  **Auth Keys: write**, tagged `tag:k8s-operator`.
+- An **auth key** for the host, tagged `tag:homelab`. 
+
+### 2. Install
+
+The stock nixos-anywhere kexec image is wired-DHCP only. This flake builds a
+wifi-capable variant for targets without ethernet.
+
+```bash
+# Confirm the disk device on the target and fix hosts/sanzang/disko.nix
+lsblk
+
+# Build the wifi kexec installer
+nix build .#kexec-installer && ls -R result/
+
+# Boot the target into it, then join wifi
+iwctl --passphrase '<psk>' station wlan0 connect '<ssid>'
+
+# Install. DESTRUCTIVE — disko wipes the disk.
+nix run github:nix-community/nixos-anywhere -- \
+  --flake .#sanzang --kexec <path-to-tarball-under-./result> root@<target-ip>
+```
+
+`nixos-rebuild` does not run disko, so only re-running nixos-anywhere
+repartitions.
+
+### 3. Secrets
+
+sops-nix decrypts with the host's **own SSH host key**, so there's no separate
+key to provision or rotate on the machine. That key only exists after the
+install above, so secrets are populated on the second pass.
+
+Convert the host key to an age recipient, add it to `.sops.yaml`, then rekey:
+
+```bash
+ssh homelab@<target-ip> cat /etc/ssh/ssh_host_ed25519_key.pub | ssh-to-age
+sops updatekeys secrets/secrets.yaml
+```
+
+Edit secrets:
+
+```bash
+sops secrets/secrets.yaml
+```
+
+Rebuild to apply secrets:
+
+```bash
+nixos-rebuild switch --flake .#sanzang --target-host homelab@<target-ip> --sudo
+```
+
+## Deploying changes
+
+`modules/auto-upgrade.nix` has the host fetch this repo from GitHub hourly and
+`nixos-rebuild switch`. Outbound HTTPS only — no inbound ports, no deploy keys
+in CI, nothing for the router to forward. The tradeoff is polling latency
+instead of deploy-on-push.
+
+## Adding a service
+
+Manifests go in `clusters/sanzang/<name>/` and are applied with `kubectl apply
+-f`.
+
+Give it an `Ingress` with `ingressClassName: tailscale`. The operator creates a
+dedicated tailnet node for it, registers MagicDNS, and provisions a TLS cert —
+no port forwarding, no cert-manager, no public exposure. `tls.hosts[0]` is a
+bare hostname, not an FQDN; the operator appends the tailnet domain.
+
+Storage uses k3s's local-path provisioner. Volumes are node-pinned, so
+`replicas` must stay at 1; a second node is the trigger for a real CSI driver.

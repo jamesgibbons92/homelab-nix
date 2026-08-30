@@ -1,0 +1,26 @@
+# Exposed on the tailnet by the Tailscale operator (see
+# modules/tailscale-operator.nix). The operator creates a dedicated
+# proxy node for this Ingress, registers it in MagicDNS, and provisions
+# a TLS cert automatically:
+#
+#   https://kuma.<your-tailnet>.ts.net
+#
+# `tls.hosts[0]` is the tailnet hostname (not a FQDN — the operator
+# appends the tailnet domain, so the tailnet name never needs to appear
+# in this repo). Proxy node state (including the WireGuard node key) is
+# persisted by the operator to a Secret in the `tailscale` namespace, so
+# the identity and MagicDNS name survive pod restarts.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: uptime-kuma
+spec:
+  ingressClassName: tailscale
+  defaultBackend:
+    service:
+      name: uptime-kuma
+      port:
+        number: 3001
+  tls:
+    - hosts:
+        - kuma
