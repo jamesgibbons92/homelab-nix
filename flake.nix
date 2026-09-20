@@ -33,7 +33,20 @@
     ...
   } @ inputs: let
     system = "x86_64-linux";
+    pkgs = nixpkgs.legacyPackages.${system};
   in {
+    # Loaded by direnv (`use flake` in .envrc): the CLI tools the README
+    # workflow assumes, so they don't need to be installed on the workstation.
+    devShells.${system}.default = pkgs.mkShell {
+      packages = with pkgs; [
+        kubectl
+        sops
+        age
+        ssh-to-age
+        nixos-anywhere
+      ];
+    };
+
     nixosConfigurations = {
       sanzang = nixpkgs.lib.nixosSystem {
         inherit system;
