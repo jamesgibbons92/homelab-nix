@@ -108,10 +108,30 @@ instead of deploy-on-push.
 Manifests go in `clusters/sanzang/<name>/` and are applied with `kubectl apply
 -f`.
 
+Namespaces and Secrets those manifests depend on are *not* in `clusters/` —
+they're sops-rendered into k3s's auto-deploy dir by a Nix module so a fresh
+rebuild has them before anything is applied (see `modules/media.nix` for the
+`media` namespace and the Surfshark WireGuard key;
+`modules/tailscale-operator.nix` for the operator's OAuth creds). To add one:
+put the value in
+`secrets/secrets.yaml`, declare it with `sops.secrets.<name>`, and reference
+`config.sops.placeholder.<name>` from a `sops.templates` manifest.
+
 Give it an `Ingress` with `ingressClassName: tailscale`. The operator creates a
 dedicated tailnet node for it, registers MagicDNS, and provisions a TLS cert —
 no port forwarding, no cert-manager, no public exposure. `tls.hosts[0]` is a
-bare hostname, not an FQDN; the operator appends the tailnet domain.
+bare hostname, not an FQDN; the operator appends the tailnet domain. Proxy
+node state (including the WireGuard node key) is persisted by the operator to
+a Secret in the `tailscale` namespace, so identity and MagicDNS survive pod
+restarts.
+
+If Tailnet Lock is enabled, a newly created proxy node shows up locked out
+and won't have connectivity until it's signed:
+
+```bash
+tailscale lock status  # lists any locked-out nodes and their nodekey
+tailscale lock sign nodekey:<key>
+```
 
 Storage uses k3s's local-path provisioner. Volumes are node-pinned, so
 `replicas` must stay at 1; a second node is the trigger for a real CSI driver.

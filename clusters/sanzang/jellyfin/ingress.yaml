@@ -1,17 +1,18 @@
 # Tailscale ingress — see README.md "Adding a service" for how this works
 # (MagicDNS, TLS, tailnet lock signing). Reachable at:
-#   https://kuma.<your-tailnet>.ts.net
+#   https://jellyfin.<your-tailnet>.ts.net
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: uptime-kuma
+  name: jellyfin
+  namespace: media
 spec:
   ingressClassName: tailscale
   defaultBackend:
     service:
-      name: uptime-kuma
+      name: jellyfin
       port:
-        number: 3001
+        number: 8096
   tls:
     - hosts:
-        - kuma
+        - jellyfin

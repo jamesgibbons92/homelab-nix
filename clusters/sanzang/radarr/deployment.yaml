@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: radarr
+  namespace: media
+spec:
+  replicas: 1
+  # Node-local PV — a RollingUpdate would briefly run two instances against
+  # the same SQLite DB.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: radarr
+  template:
+    metadata:
+      labels:
+        app: radarr
+    spec:
+      containers:
+        - name: radarr
+          image: lscr.io/linuxserver/radarr
+          env:
+            - name: PUID
+              value: "1057"
+            - name: PGID
+              value: "1056"
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: media
+              # Same absolute path as jellyfin and qbittorrent, so Radarr's
+              # download-client and root-folder paths line up 1:1 with what
+              # those two see — no Remote Path Mapping needed, and imports
+              # can hardlink instead of copy since it's all one PVC.
+              mountPath: /data/media
+          ports:
+            - containerPort: 7878
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: radarr-config
+        - name: media
+          persistentVolumeClaim:
+            claimName: media
