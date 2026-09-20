@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jackett
+  namespace: media
+spec:
+  replicas: 1
+  # Node-local PV — a RollingUpdate would briefly run two instances against
+  # the same SQLite DB.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: jackett
+  template:
+    metadata:
+      labels:
+        app: jackett
+    spec:
+      containers:
+        - name: jackett
+          image: lscr.io/linuxserver/jackett
+          env:
+            - name: PUID
+              value: "1057"
+            - name: PGID
+              value: "1056"
+          volumeMounts:
+            - name: config
+              mountPath: /config
+          ports:
+            - containerPort: 9117
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: jackett-config

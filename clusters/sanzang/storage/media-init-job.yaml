@@ -1,0 +1,40 @@
+# One-off job that lays out the subdirectory structure expected inside the
+# shared `media` PVC (see media-pv.yaml / media-pvc.yaml). The PV's hostPath
+# only auto-creates the top-level directory (DirectoryOrCreate), not the
+# subfolders each app expects, so without this those had to be created by
+# hand with `kubectl exec ... mkdir/chown` — not reproducible from git.
+#
+# 1057:1056 matches the PUID/PGID qbittorrent and radarr run as (see their
+# deployment.yaml), so both can write into these directories.
+#
+# Idempotent (mkdir -p / chown -R), so re-running is safe. The Job is
+# garbage-collected 5 minutes after it finishes (ttlSecondsAfterFinished), so
+# a later `kubectl apply` simply recreates it. Only re-applying a *changed*
+# spec inside that window hits the Job-immutability error — `kubectl -n media
+# delete job media-init` first in that case.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: media-init
+  namespace: media
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init
+          image: busybox
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /data/media/downloads /data/media/movies
+              chown -R 1057:1056 /data/media/downloads /data/media/movies
+          volumeMounts:
+            - name: media
+              mountPath: /data/media
+      volumes:
+        - name: media
+          persistentVolumeClaim:
+            claimName: media

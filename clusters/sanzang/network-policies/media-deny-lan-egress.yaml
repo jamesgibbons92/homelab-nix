@@ -1,0 +1,23 @@
+# Denies egress to the LAN (192.168.0.0/24) specifically, while still
+# allowing cluster-internal traffic (pod CIDR 10.42.0.0/16, service CIDR
+# 10.43.0.0/16 — including kube-dns) and general internet egress, since
+# both fall outside the excepted CIDR.
+#
+# qbittorrent's gluetun sidecar already blocks LAN egress via its own
+# in-pod firewall — this covers it too, plus jellyfin/radarr/jackett which
+# have no such protection of their own.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-lan-egress
+  namespace: media
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 192.168.0.0/24

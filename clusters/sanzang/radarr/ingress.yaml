@@ -1,17 +1,18 @@
 # Tailscale ingress — see README.md "Adding a service" for how this works
 # (MagicDNS, TLS, tailnet lock signing). Reachable at:
-#   https://kuma.<your-tailnet>.ts.net
+#   https://radarr.<your-tailnet>.ts.net
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: uptime-kuma
+  name: radarr
+  namespace: media
 spec:
   ingressClassName: tailscale
   defaultBackend:
     service:
-      name: uptime-kuma
+      name: radarr
       port:
-        number: 3001
+        number: 7878
   tls:
     - hosts:
-        - kuma
+        - radarr

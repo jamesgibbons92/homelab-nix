@@ -1,17 +1,18 @@
 # Tailscale ingress — see README.md "Adding a service" for how this works
 # (MagicDNS, TLS, tailnet lock signing). Reachable at:
-#   https://kuma.<your-tailnet>.ts.net
+#   https://jackett.<your-tailnet>.ts.net
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: uptime-kuma
+  name: jackett
+  namespace: media
 spec:
   ingressClassName: tailscale
   defaultBackend:
     service:
-      name: uptime-kuma
+      name: jackett
       port:
-        number: 3001
+        number: 9117
   tls:
     - hosts:
-        - kuma
+        - jackett

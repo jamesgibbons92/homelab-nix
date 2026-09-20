@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jellyfin
+  namespace: media
+spec:
+  replicas: 1
+  # Node-local PV — a RollingUpdate would briefly run two instances against
+  # the same SQLite DB.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: jellyfin
+  template:
+    metadata:
+      labels:
+        app: jellyfin
+    spec:
+      containers:
+        - name: jellyfin
+          image: jellyfin/jellyfin
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: media
+              # Scoped to the movies subdirectory only (not the whole PVC) so
+              # qbittorrent's in-progress downloads are never visible inside
+              # this container — hardlinking from downloads/ into movies/
+              # still works since it's the same underlying PVC.
+              mountPath: /data/media/movies
+              subPath: movies
+          ports:
+            - containerPort: 8096
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: jellyfin-config
+        - name: media
+          persistentVolumeClaim:
+            claimName: media

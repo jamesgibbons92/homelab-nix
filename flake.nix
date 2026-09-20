@@ -46,6 +46,7 @@
           ./modules/common.nix
           ./modules/k3s.nix
           ./modules/tailscale-operator.nix
+          ./modules/media.nix
           ./modules/auto-upgrade.nix
           ./modules/notify.nix
         ];

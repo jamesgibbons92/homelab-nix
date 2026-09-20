@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qbittorrent
+  namespace: media
+spec:
+  replicas: 1
+  # Node-local PVs, so a RollingUpdate would briefly run two instances
+  # against the same config/fastresume files.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: qbittorrent
+  template:
+    metadata:
+      labels:
+        app: qbittorrent
+    spec:
+      # Resolve via gluetun's DNS-over-TLS resolver (127.0.0.1, inside the
+      # tunnel) instead of CoreDNS → ISP. Without this the kill switch covers
+      # payload traffic but every tracker/peer hostname lookup still leaves
+      # via the host's upstream resolver. Costs cluster-internal name
+      # resolution from inside this pod, which nothing here needs — Radarr
+      # calls qbittorrent, not the other way round.
+      dnsPolicy: None
+      dnsConfig:
+        nameservers:
+          - 127.0.0.1
+      # gluetun runs as a native sidecar (init container with
+      # restartPolicy: Always) so the kubelet won't start qbittorrent until
+      # the startup probe passes — i.e. tun0 is up and the kill switch is
+      # installed. Otherwise qbittorrent enumerates interfaces before tun0
+      # exists and can spend its first seconds on plain eth0.
+      initContainers:
+        # Pin libtorrent to tun0 before qbittorrent starts. Without this it
+        # listens on every interface, and after gluetun bounces the tunnel it
+        # is left with only eth0 sockets — all blackholed by the kill switch,
+        # so torrents silently stall. Bound to a named device it fails closed
+        # and re-binds when tun0 returns. Done here rather than in the WebUI
+        # so it survives a fresh PVC. qbittorrent only reads the conf at
+        # startup, so editing it beforehand is race-free.
+        #
+        # On a fresh PVC, also point the save paths at the shared media
+        # volume. The image's default conf uses /downloads/, which isn't
+        # mounted here, so every download would fail and Radarr would never
+        # see the files. Only done when seeding, so later WebUI edits stick.
+        - name: bind-tun0
+          image: lscr.io/linuxserver/qbittorrent
+          command:
+            - sh
+            - -ec
+            - |
+              conf=/config/qBittorrent/qBittorrent.conf
+              mkdir -p /config/qBittorrent
+              [ -f "$conf" ] || sed \
+                -e 's#^Downloads\\SavePath=.*#Downloads\\SavePath=/data/media/downloads/#' \
+                -e 's#^Downloads\\TempPath=.*#Downloads\\TempPath=/data/media/downloads/incomplete/#' \
+                /defaults/qBittorrent.conf > "$conf"
+              tmp=$(mktemp)
+              grep -vF -e 'Session\Interface=' -e 'Session\InterfaceName=' "$conf" > "$tmp" || true
+              grep -qxF '[BitTorrent]' "$tmp" || printf '\n[BitTorrent]\n' >> "$tmp"
+              awk '{print} $0=="[BitTorrent]"{print "Session\\Interface=tun0"; print "Session\\InterfaceName=tun0"}' "$tmp" > "$conf"
+              grep -F -e 'Session\Interface' -e 'Downloads\SavePath' "$conf"
+          volumeMounts:
+            - name: config
+              mountPath: /config
+
+        - name: gluetun
+          image: ghcr.io/qdm12/gluetun:v3.40.0
+          restartPolicy: Always
+          startupProbe:
+            exec:
+              command: ["/gluetun-entrypoint", "healthcheck"]
+            periodSeconds: 5
+            failureThreshold: 24 # 2 min for the tunnel to come up
+          env:
+            - name: VPN_SERVICE_PROVIDER
+              value: "surfshark"
+            - name: VPN_TYPE
+              value: "wireguard"
+            - name: SERVER_COUNTRIES
+              value: "Netherlands"
+            - name: WIREGUARD_ADDRESSES
+              value: "10.14.0.2/16" # from SurfShark WireGuard config — Address field
+            - name: FIREWALL_VPN_INPUT_PORTS
+              value: "50413" # torrent port — must accept inbound on the VPN interface
+            - name: FIREWALL_INPUT_PORTS
+              value: "8080" # web UI port — served on the pod's local interface
+            - name: FIREWALL_OUTBOUND_SUBNETS
+              value: "10.0.0.0/8"
+            - name: WIREGUARD_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: surfshark-secret
+                  key: WIREGUARD_PRIVATE_KEY
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+          volumeMounts:
+            - name: tun
+              mountPath: /dev/net/tun
+
+      containers:
+        - name: qbittorrent
+          image: lscr.io/linuxserver/qbittorrent
+          resources:
+            limits:
+              memory: "2Gi"
+            requests:
+              memory: "512Mi"
+          env:
+            - name: PUID
+              value: "1057"
+            - name: PGID
+              value: "1056"
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: downloads
+              mountPath: /data/media
+          ports:
+            - containerPort: 8080
+
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: qbitt-config
+        - name: downloads
+          persistentVolumeClaim:
+            claimName: media
+        - name: tun
+          hostPath:
+            path: /dev/net/tun
