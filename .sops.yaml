@@ -4,6 +4,7 @@
 keys:
   - &admin age1chhvyw7qc7vh72shr3ul4pz9zfvzmvmlhgfwfzzckvged3c0rd7sppcf86
   - &sanzang age1mh5xsmfff5k260aw05kdr55uss0nhzdel2je2c9e6a2tv0ascarsypmwpz
+  - &yubi B4078BB88FFBE471103C552E408E19E14CE4AC11
 
 creation_rules:
   - path_regex: secrets/secrets\.yaml$
@@ -11,3 +12,5 @@ creation_rules:
       - age:
           - *admin
           - *sanzang
+        pgp:
+          - *yubi
