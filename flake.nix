@@ -14,7 +14,12 @@
     };
 
     sops-nix = {
-      url = "github:Mic92/sops-nix";
+      # Pinned: sops-nix 16954c1 (2026-09-17) bumped go.mod to Go 1.26, but
+      # nixos-25.11 ships Go 1.25, and because of the `follows` below
+      # sops-install-secrets is built with *our* nixpkgs — so anything newer
+      # fails with "go.mod requires go >= 1.26". Last rev before the bump.
+      # Drop the rev once nixpkgs moves to 26.05.
+      url = "github:Mic92/sops-nix/13616fff713a9f94055c66f15687ebdc17a335df";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 

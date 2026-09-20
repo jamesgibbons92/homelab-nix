@@ -11,8 +11,8 @@
   system.autoUpgrade = {
     enable = true;
     flake = "github:jamesgibbons92/homelab-nix#sanzang";
-    dates = "hourly";
-    randomizedDelaySec = "10m";
+    dates = "*:0/15";
+    randomizedDelaySec = "1m";
     persistent = true;
 
     # Deliberately false: a kernel/nixpkgs bump that lands via the timer
@@ -29,7 +29,7 @@
     # pull-deploy means the host quietly stops receiving changes.
     onFailure = ["notify-failure.service"];
 
-    # The unit also succeeds on every one of the ~24 daily runs that find
+    # The unit also succeeds on every one of the ~96 daily runs that find
     # nothing new upstream, so notify-success only pings when the closure
     # actually moved. Stash what we're running before the rebuild switches
     # it out from under us — /run is enough, it's rewritten every run and
