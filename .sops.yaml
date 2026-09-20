@@ -2,15 +2,17 @@
 # sanzang: derived from the host's SSH ed25519 host key (via ssh-to-age),
 # so the machine can decrypt its own secrets at activation time.
 keys:
-  - &admin age1chhvyw7qc7vh72shr3ul4pz9zfvzmvmlhgfwfzzckvged3c0rd7sppcf86
-  - &sanzang age1mh5xsmfff5k260aw05kdr55uss0nhzdel2je2c9e6a2tv0ascarsypmwpz
-  - &yubi B4078BB88FFBE471103C552E408E19E14CE4AC11
+  - &users:
+    - &james B4078BB88FFBE471103C552E408E19E14CE4AC11
+  - &hosts:
+    - &sanzang age1mh5xsmfff5k260aw05kdr55uss0nhzdel2je2c9e6a2tv0ascarsypmwpz
+    - &bajie age1chhvyw7qc7vh72shr3ul4pz9zfvzmvmlhgfwfzzckvged3c0rd7sppcf86
 
 creation_rules:
   - path_regex: secrets/secrets\.yaml$
     key_groups:
       - age:
-          - *admin
+          - *bajie
           - *sanzang
         pgp:
-          - *yubi
+          - *james
