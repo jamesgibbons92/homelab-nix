@@ -4,7 +4,7 @@ metadata:
   name: jellyfin
   namespace: media
 spec:
-  type: ClusterIP
+  type: LoadBalancer
   selector:
     app: jellyfin
   ports:

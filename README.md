@@ -1,4 +1,5 @@
 # homelab-nix
+
 Single-node [k3s](https://k3s.io) cluster running NixOS, managed
 declaratively as a flake.
 
@@ -6,8 +7,9 @@ Provisioned with [nixos-anywhere](https://github.com/nix-community/nixos-anywher
 and [disko](https://github.com/nix-community/disko). Secrets are committed
 encrypted via [sops-nix](https://github.com/Mic92/sops-nix). Services are
 reachable over [Tailscale](https://tailscale.com) — nothing is exposed to the
-internet and the router forwards no ports. The host rebuilds itself hourly by
-pulling this repo from GitHub.
+internet and the router forwards no ports. Jellyfin is the one deliberate
+exception, also published on the LAN (see "LAN exposure" below). The host
+rebuilds itself hourly by pulling this repo from GitHub.
 
 Kubernetes manifests are deliberately not templated through Nix — the host
 layer and the workload layer stay separate.
@@ -37,7 +39,7 @@ In the ACL policy file, declare the tags:
     "action": "check",           // browser re-auth, ~12h
     "src":    ["autogroup:member"],
     "dst":    ["tag:homelab"],
-    "users":  ["homelab"],      
+    "users":  ["homelab"],
   },
 ],
 ```
@@ -46,7 +48,7 @@ Then generate two credentials:
 
 - An **OAuth client** (Settings → OAuth clients) with **Devices: write** and
   **Auth Keys: write**, tagged `tag:k8s-operator`.
-- An **auth key** for the host, tagged `tag:homelab`. 
+- An **auth key** for the host, tagged `tag:homelab`.
 
 ### 2. Install
 
@@ -108,7 +110,7 @@ instead of deploy-on-push.
 Manifests go in `clusters/sanzang/<name>/` and are applied with `kubectl apply
 -f`.
 
-Namespaces and Secrets those manifests depend on are *not* in `clusters/` —
+Namespaces and Secrets those manifests depend on are _not_ in `clusters/` —
 they're sops-rendered into k3s's auto-deploy dir by a Nix module so a fresh
 rebuild has them before anything is applied (see `modules/media.nix` for the
 `media` namespace and the Surfshark WireGuard key;
@@ -135,3 +137,36 @@ tailscale lock sign nodekey:<key>
 
 Storage uses k3s's local-path provisioner. Volumes are node-pinned, so
 `replicas` must stay at 1; a second node is the trigger for a real CSI driver.
+
+## LAN exposure
+
+Default posture is tailnet-only, and new services should stay that way.
+Jellyfin is the single exception: in order for LAN devices to stream, so
+`clusters/sanzang/jellyfin/service.yaml` is `type: LoadBalancer` and k3s
+ServiceLB binds port 8096 on the host. Point the client at:
+
+```
+http://192.168.0.21:8096
+```
+
+The Tailscale Ingress still works alongside it — the ClusterIP is unchanged,
+so off-LAN clients keep using `https://jellyfin.<tailnet>.ts.net`.
+
+Things to know before copying this pattern:
+
+- **The NixOS firewall cannot scope it.** ServiceLB DNATs in nat/PREROUTING
+  with no source match, so the packet crosses FORWARD, not INPUT — see the
+  long note in `modules/k3s.nix`. The port is open to every device on
+  192.168.0.0/24, not just the Fire TV stick. Jellyfin's own login is the
+  only access control in front of the media library.
+- **Don't remove ServiceLB.** `modules/k3s.nix` notes that dropping servicelb
+  would close the unused Traefik surface; doing that now also takes Jellyfin
+  off the LAN.
+- **No auto-discovery.** The Jellyfin app finds servers by UDP broadcast on
+  7359, which doesn't cross the CNI boundary. Enter the URL above by hand.
+- **It's HTTP, not HTTPS.** Plaintext on the local segment only; nothing is
+  routable from outside.
+- `network-policies/media-deny-lan-egress.yaml` still applies. It blocks
+  pod-initiated egress to the LAN; replies to inbound LAN connections are
+  part of an established flow and are unaffected (verified against the live
+  cluster).

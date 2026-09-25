@@ -36,9 +36,9 @@
   # is addressed to the pod, so it traverses FORWARD (policy ACCEPT), never
   # INPUT — adding 80/443 to allowedTCPPorts above is purely cosmetic.
   #
-  # Nothing currently uses the traefik ingressclass (the only Ingress is
-  # class "tailscale", served by the operator), so this is open surface
-  # with no function. Fix is to drop servicelb or Traefik itself.
+  # Nothing currently uses the traefik ingressclass (the only Ingresses are
+  # class "tailscale", served by the operator), so Traefik itself is open
+  # surface with no function. Dropping Traefik would close it.
 
   # Cluster-internal traffic. The NixOS firewall filters the INPUT chain,
   # which pod->host and pod->pod traffic crosses, so k3s needs its own
