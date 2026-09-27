@@ -49,6 +49,8 @@
         age
         ssh-to-age
         nixos-anywhere
+        opentofu
+        awscli2
       ];
     };
 
@@ -65,6 +67,8 @@
           ./modules/k3s.nix
           ./modules/tailscale-operator.nix
           ./modules/media.nix
+          ./modules/cloudnative-pg.nix
+          ./modules/niks3.nix
           ./modules/auto-upgrade.nix
           ./modules/notify.nix
         ];

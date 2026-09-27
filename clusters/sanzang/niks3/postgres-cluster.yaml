@@ -1,0 +1,21 @@
+# Postgres for niks3, managed by the CloudNativePG operator. CNPG publishes the
+# connection string as Secret `niks3-pg-app`, which modules/niks3.nix hands the
+# chart. That URI uses the short service name, so this Cluster has to live in the
+# same namespace as niks3 — a namespace created by the sops-rendered manifest in
+# modules/niks3.nix, not here.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: niks3-pg
+  namespace: niks3
+spec:
+  # local-path PVs are node-pinned — fine on one node, but a second instance
+  # would have nowhere to go. A real CSI driver is the trigger for raising this.
+  instances: 1
+  storage:
+    size: 10Gi
+    storageClass: local-path
+  bootstrap:
+    initdb:
+      database: niks3
+      owner: niks3

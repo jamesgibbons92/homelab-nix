@@ -7,8 +7,9 @@ Provisioned with [nixos-anywhere](https://github.com/nix-community/nixos-anywher
 and [disko](https://github.com/nix-community/disko). Secrets are committed
 encrypted via [sops-nix](https://github.com/Mic92/sops-nix). Services are
 reachable over [Tailscale](https://tailscale.com) — nothing is exposed to the
-internet and the router forwards no ports. Jellyfin is the one deliberate
-exception, also published on the LAN (see "LAN exposure" below). The host
+internet and the router forwards no ports. There are two deliberate exceptions:
+Jellyfin is also published on the LAN (see "LAN exposure"), and the binary
+cache's R2 bucket is public on the internet (see "Binary cache"). The host
 rebuilds itself hourly by pulling this repo from GitHub.
 
 Kubernetes manifests are deliberately not templated through Nix — the host
@@ -25,13 +26,18 @@ In the ACL policy file, declare the tags:
   "tag:k8s-operator": [],
   "tag:k8s":          ["tag:k8s-operator"],
   "tag:homelab":      ["autogroup:admin"],
+  "tag:ci":           ["autogroup:admin"],
 },
 ```
+
+`tag:ci` is for GitHub Actions runners, which join the tailnet to push to the
+binary cache (see "Binary cache").
 
 ```jsonc
 "acls": [
   { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:homelab:22,6443"] },
   { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:k8s:443"] },
+  { "action": "accept", "src": ["tag:ci"],           "dst": ["tag:k8s:443"] },
 ],
 
 "ssh": [
@@ -44,11 +50,14 @@ In the ACL policy file, declare the tags:
 ],
 ```
 
-Then generate two credentials:
+Then generate three credentials:
 
 - An **OAuth client** (Settings → OAuth clients) with **Devices: write** and
   **Auth Keys: write**, tagged `tag:k8s-operator`.
 - An **auth key** for the host, tagged `tag:homelab`.
+- A second **OAuth client** with **Auth Keys: write**, tagged `tag:ci`. This one
+  is not stored here — it goes in the build repo's GitHub secrets, where
+  `tailscale/github-action` uses it to mint an ephemeral node per job.
 
 ### 2. Install
 
@@ -137,6 +146,149 @@ tailscale lock sign nodekey:<key>
 
 Storage uses k3s's local-path provisioner. Volumes are node-pinned, so
 `replicas` must stay at 1; a second node is the trigger for a real CSI driver.
+
+The binary cache doesn't follow this shape — it's installed from a Helm chart
+rather than hand-written manifests, and its read path is public. See "Binary
+cache" below before copying it as a pattern.
+
+## Binary cache
+
+[niks3](https://github.com/Mic92/niks3) serves a Nix binary cache backed by
+Cloudflare R2. Three paths, deliberately separate:
+
+```
+write  GitHub runner --tailscale up--> tailnet --> niks3 Ingress
+       --presigned PUT--> R2, refs tracked in Postgres
+read   nix client --> Cloudflare CDN --> R2 bucket   (never touches sanzang)
+GC     CronJob in-cluster --> http://niks3:80 --> R2 deletes
+```
+
+niks3 itself only signs uploads and garbage-collects; it is never in the read
+path. That's what makes it cheap to run on one node.
+
+**The R2 bucket is public.** `cache.<zone>` is a Cloudflare custom domain on the
+bucket, so anyone who knows the hostname can read the cache. This is the second
+deliberate exception to the tailnet-only posture, and the reason R2 is worth
+using: zero egress fees and a CDN, with no inbound anything on this host. NARs
+are signed with an Ed25519 key, so a public bucket leaks *what* has been built,
+not the ability to poison it. Don't push closures whose store path names are
+themselves sensitive.
+
+Writes stay tailnet-only at `https://niks3.<tailnet>.ts.net`
+(`clusters/sanzang/niks3/ingress.yaml`). GitHub Actions reaches it by joining the
+tailnet under `tag:ci`, not by anything being exposed — and authenticates with
+GitHub OIDC bound to one repository and its default branch, so there is no
+niks3 token in CI.
+
+Layout:
+
+| Where | What |
+| --- | --- |
+| `tofu/` | OpenTofu: the R2 bucket, `cache.<zone>`, and a bucket-scoped R2 token |
+| `modules/cloudnative-pg.nix` | CloudNativePG operator (Postgres for niks3) |
+| `modules/niks3.nix` | namespace + sops secrets + the niks3 HelmChart |
+| `clusters/sanzang/niks3/` | the Postgres `Cluster` and the Tailscale Ingress |
+
+### Bringing it up
+
+```bash
+cd tofu && tofu init && tofu apply          # see tofu/README.md first
+```
+
+Generate the two secrets niks3 doesn't get from `tofu` — the API token is still
+needed even though CI uses OIDC, because the GC CronJob authenticates with it:
+
+```bash
+openssl rand -base64 32                             # >= 36 chars
+nix key generate-secret --key-name cache.<zone>-1
+```
+
+`modules/niks3.nix` declares **nine** sops secrets and its header comment lists
+where each value comes from — the two above, five `tofu` outputs, and two
+strings you pick. All nine have to exist or `nixos-rebuild` fails in
+`sops-install-secrets`:
+
+```bash
+sops secrets/secrets.yaml
+```
+
+Postgres credentials are *not* among them — CNPG generates them and owns the
+`niks3-pg-app` Secret.
+
+Then rebuild and apply the workload layer:
+
+```bash
+nixos-rebuild switch --flake .#sanzang --target-host homelab@<target-ip> --sudo
+kubectl apply -f clusters/sanzang/niks3/
+```
+
+Until that `kubectl apply` lands, the niks3 pod sits in
+`CreateContainerConfigError` waiting on the `niks3-pg-app` Secret. That's
+expected and self-healing, not a misconfiguration.
+
+### Checking it
+
+```bash
+curl -sS https://cache.<zone>/nix-cache-info    # StoreDir, WantMassQuery, Priority: 30
+curl -sS https://niks3.<tailnet>.ts.net/healthz
+
+# The check that catches OIDC mistakes before a workflow run: an empty
+# oidc_audience means the provider config didn't parse and CI will 401.
+curl -sS 'https://niks3.<tailnet>.ts.net/api/cache-config?issuer=https://token.actions.githubusercontent.com' | jq
+```
+
+GC runs daily at 03:00 on closures older than 30 days. To run it now:
+
+```bash
+kubectl -n niks3 create job --from=cronjob/niks3-gc gc-manual
+kubectl -n niks3 logs job/gc-manual
+```
+
+### Using it from GitHub Actions
+
+Builds live in a separate repo. It needs `TS_OAUTH_CLIENT_ID` and
+`TS_OAUTH_SECRET` from the `tag:ci` OAuth client, and:
+
+```yaml
+permissions:
+  contents: read
+  id-token: write          # required for niks3's OIDC auth
+
+steps:
+  - uses: actions/checkout@v5
+  - uses: tailscale/github-action@v4
+    with:
+      oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+      tags: tag:ci
+      ping: niks3          # fail fast if the tailnet route is wrong
+  - uses: NixOS/nix-installer-action@main
+  - uses: Mic92/niks3-action@v1
+    with:
+      server-url: https://niks3.<tailnet>.ts.net
+  - run: nix build .#...
+```
+
+The substituter URL and trusted public key are not hardcoded: `niks3-action`
+reads them from `/api/cache-config`, so runners pull from the CDN and push over
+the tailnet. Because it registers a `post-build-hook`, intermediate derivations
+are cached even when a build later fails or is cancelled.
+
+Which OIDC tokens are accepted is pinned in `modules/niks3.nix` under
+`auth.oidcProviders.github.bound_claims`: `repository` names the build repo, and
+`ref` pins it to `refs/heads/main`. Both have to match, so a run on a feature
+branch, a tag, or a `pull_request_target` gets 401 rather than a token niks3
+would sign NARs with. A second build repo — or pushing from a branch other than
+`main` — needs adding there and a rebuild.
+
+For machines outside CI:
+
+```nix
+nix.settings = {
+  substituters = ["https://cache.<zone>"];
+  trusted-public-keys = ["cache.<zone>-1:<pubkey>"];   # nix key convert-secret-to-public
+};
+```
 
 ## LAN exposure
 

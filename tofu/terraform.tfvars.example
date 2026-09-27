@@ -1,0 +1,10 @@
+# cp terraform.tfvars.example terraform.tfvars and fill in.
+# terraform.tfvars is gitignored: account_id is not secret, but there is no
+# reason to publish it either.
+account_id = "0123456789abcdef0123456789abcdef"
+zone       = "example.com"
+
+# Optional, shown with their defaults:
+# cache_subdomain = "cache"
+# bucket_name     = "nix-cache"
+# location        = "weur"
