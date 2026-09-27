@@ -1,0 +1,21 @@
+# Tailscale ingress for the niks3 *write* API — https://niks3.<tailnet>.ts.net.
+# See README.md "Adding a service" for how this works. Reads do not come through
+# here; Nix clients fetch from the R2 custom domain.
+#
+# GitHub Actions reaches this under tag:ci, so the ACL must allow
+# tag:ci -> tag:k8s:443.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: niks3
+  namespace: niks3
+spec:
+  ingressClassName: tailscale
+  defaultBackend:
+    service:
+      name: niks3
+      port:
+        number: 80
+  tls:
+    - hosts:
+        - niks3

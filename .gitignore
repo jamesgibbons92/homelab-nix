@@ -19,7 +19,14 @@ kubeconfig
 .env
 .env.*
 
+tofu/.terraform/
+tofu/terraform.tfstate
+tofu/terraform.tfstate.*
+tofu/*.tfvars
+!tofu/*.tfvars.example
+tofu/tfplan
+
 # not published yet — internal planning notes and the expanded README
 homelab-plan.md
 README.local.md
-README.md
+/README.md
