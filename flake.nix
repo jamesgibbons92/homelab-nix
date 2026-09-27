@@ -68,6 +68,8 @@
           ./modules/tailscale-operator.nix
           ./modules/media.nix
           ./modules/cloudnative-pg.nix
+
+          ./modules/k3s-workloads.nix
           ./modules/niks3.nix
           ./modules/auto-upgrade.nix
           ./modules/notify.nix

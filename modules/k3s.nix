@@ -2,11 +2,8 @@
   services.k3s = {
     enable = true;
     role = "server";
-    # Ingress: keeping k3s's bundled Traefik rather than swapping to
-    # ingress-nginx (decided). No --disable traefik.
-    # extraFlags accepts either a string or a list of strings on the
-    # nixpkgs-25.11 rev this flake is pinned to (confirmed via
-    # `nix eval .#nixosConfigurations.sanzang.options.services.k3s.extraFlags.type.description`).
+
+    package = pkgs.k3s_1_34;
   };
 
   # Scoped to the tailnet, NOT opened globally. The router does no inbound

@@ -24,7 +24,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: init
-          image: busybox
+          image: busybox:1.38.0
           command:
             - sh
             - -c
