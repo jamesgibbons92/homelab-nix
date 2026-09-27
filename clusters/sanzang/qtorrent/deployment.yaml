@@ -46,7 +46,7 @@ spec:
         # mounted here, so every download would fail and Radarr would never
         # see the files. Only done when seeding, so later WebUI edits stick.
         - name: bind-tun0
-          image: lscr.io/linuxserver/qbittorrent
+          image: lscr.io/linuxserver/qbittorrent:5.2.3
           command:
             - sh
             - -ec
@@ -104,7 +104,7 @@ spec:
 
       containers:
         - name: qbittorrent
-          image: lscr.io/linuxserver/qbittorrent
+          image: lscr.io/linuxserver/qbittorrent:5.2.3
           resources:
             limits:
               memory: "2Gi"

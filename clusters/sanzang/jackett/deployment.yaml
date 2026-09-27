@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
         - name: jackett
-          image: lscr.io/linuxserver/jackett
+          image: lscr.io/linuxserver/jackett:0.24.2680
           env:
             - name: PUID
               value: "1057"
